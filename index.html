@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>From Google Earth to Stellarium</title>
+    <style>
+body {
+    margin: 0;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f8f8f8;
+    color: #333333;
+    padding-bottom: 50px;
+}
+
+h1 {
+    color: #111111;
+    margin-top: 25px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.image-input-section {
+    background-color: #ffffff;
+    padding: 20px 30px;
+    border-radius: 10px;
+    margin-bottom: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 700px;
+    width: 95%;
+}
+
+.image-input-section p {
+    font-size: 1.1em;
+    margin-bottom: 15px;
+    text-align: center;
+    line-height: 1.5;
+    color: #555555;
+}
+
+.input-group {
+    margin-bottom: 20px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.input-group label {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #444444;
+    font-size: 1.05em;
+}
+
+.input-group input[type="file"] {
+    padding: 10px;
+    border: 1px solid #cccccc;
+    border-radius: 5px;
+    background-color: #fefefe;
+    width: calc(100% - 22px);
+    box-sizing: border-box;
+}
+
+.preview-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 15px;
+    padding: 10px;
+    border: 1px dashed #aaaaaa;
+    border-radius: 8px;
+    min-height: 100px;
+    background-color: #ffffff;
+    width: calc(100% - 20px);
+    box-sizing: border-box;
+}
+
+.preview-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 0.9em;
+    color: #666666;
+    text-align: center;
+}
+
+.preview-item img {
+    width: 90px;
+    height: 90px;
+    border: 1px solid #eeeeee;
+    object-fit: cover;
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+
+button {
+    padding: 12px 25px;
+    font-size: 1.1em;
+    background-color: #444444;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+button:hover {
+    background-color: #222222;
+    transform: translateY(-2px);
+}
+
+button:active {
+    background-color: #000000;
+    transform: translateY(0);
+}
+
+#container {
+    width: 1024px;
+    height: 1024px;
+    background-color: #dddddd;
+    border: 1px solid #aaaaaa;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+#downloadButton {
+    background-color: #666666;
+}
+
+#downloadButton:hover {
+    background-color: #444444;
+}
+
+@media (max-width: 800px) {
+    #container {
+        width: 90vw;
+        height: 90vw;
+    }
+    .image-input-section {
+        padding: 15px 20px;
+    }
+}
+    </style>
+</head>
+<body>
+    <h1>From Google Earth to Stellarium</h1>
+
+    <div class="image-input-section">
+        <p>큐브맵에 사용할 6장의 이미지를 선택해주세요</p>
+        <div class="input-group">
+            <label for="imageInputMultiple">이미지 파일 선택</label>
+            <input type="file" id="imageInputMultiple" accept="image/*" multiple>
+        </div>
+        <div class="preview-container" id="previewContainer"></div>
+        <button id="processImagesButton">투영</button>
+    </div>
+
+    <div id="container"></div>
+    <button id="downloadButton" style="display: none;">다운로드</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        const imageInputMultiple = document.getElementById('imageInputMultiple');
+        const previewContainer = document.getElementById('previewContainer');
+        const processImagesButton = document.getElementById('processImagesButton');
+        const container = document.getElementById('container');
+        const downloadButton = document.getElementById('downloadButton');
+
+        let loadedImages = [];
+        let scaledCanvases = [];
+        let scaledCanvasesForPreview = [];
+        const CUBEMAP_LABELS = [
+            '+X (우측)', '-X (좌측)', '+Y (상단)', '-Y (하단)', '+Z (정면)', '-Z (후면)'
+        ];
+		
+        imageInputMultiple.addEventListener('change', async (event) => {
+            const files = Array.from(event.target.files);
+            loadedImages = [];
+
+            if (files.length === 6) {
+                const loadPromises = files.map((file, index) => {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        const img = new Image();
+
+                        reader.onload = (e) => {
+                            img.onload = () => {
+                                loadedImages.push({ file: file, image: img, index: index });
+                                let previewItem = document.createElement('div');
+                                previewItem.className = 'preview-item';
+                                previewItem.textContent = `${CUBEMAP_LABELS?.[index]} - ${file.name}`;
+                                previewContainer.appendChild(previewItem);
+                                resolve();
+                            };
+                            img.onerror = () => {
+                                reject(new Error(`Failed to load image: ${file.name}`));
+                            };
+                            img.src = e.target.result;
+                        };
+                        reader.onerror = (e) => {
+                            reject(new Error(`FileReader error for: ${file.name}`));
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                });
+
+                try {
+                    await Promise.all(loadPromises);
+                    loadedImages.sort((a, b) => a.index - b.index);
+                } catch (error) {
+                    imageInputMultiple.value = '';
+                    loadedImages = [];
+                    previewContainer.innerHTML = '';
+                }
+
+            } else if (files.length > 0) {
+                imageInputMultiple.value = '';
+                loadedImages = [];
+                previewContainer.innerHTML = '';
+            } else {
+                loadedImages = [];
+                previewContainer.innerHTML = '';
+            }
+        });
+
+        function updatePreviewAll() {
+            previewContainer.innerHTML = '';
+            if (scaledCanvasesForPreview.length === 6) {
+                for (let i = 0; i < scaledCanvasesForPreview.length; i++) {
+                    const canvas = scaledCanvasesForPreview?.[i];
+                    if (canvas) {
+                        let previewItem = document.createElement('div');
+                        previewItem.className = 'preview-item';
+                        let previewImg = document.createElement('img');
+                        previewImg.src = canvas.toDataURL('image/png');
+                        previewImg.alt = `Processed Image ${i + 1}`;
+                        let labelDiv = document.createElement('div');
+                        labelDiv.textContent = CUBEMAP_LABELS?.[i];
+                        previewItem.appendChild(previewImg);
+                        previewItem.appendChild(labelDiv);
+                        previewContainer.appendChild(previewItem);
+                    } else {
+                        let placeholderItem = document.createElement('div');
+                        placeholderItem.className = 'preview-item';
+                        placeholderItem.innerHTML = `<div style="width:90px; height:90px; background-color:#eee; display:flex; justify-content:center; align-items:center; border-radius:5px;">${CUBEMAP_LABELS?.[i]} (X)</div><div>${CUBEMAP_LABELS?.[i]}</div>`;
+                        previewContainer.appendChild(placeholderItem);
+                    }
+                }
+            } else {
+                previewContainer.innerHTML = '<p>Will be updated...</p>';
+            }
+        }
+
+
+        // --- 이미지 자르기 및 1024x1024 스케일링 처리 로직 (바닥 기준 크롭) ---
+        async function processAndScaleImage(image, index) {
+            const croppedCanvas = document.createElement('canvas');
+            const targetCropSize = 720;
+            croppedCanvas.width = targetCropSize;
+            croppedCanvas.height = targetCropSize;
+            const ctx = croppedCanvas.getContext('2d');
+
+            let margin = image.width / 2 - 1280 / 2;
+            let sourceX = image.width / 2 - margin - targetCropSize / 2;
+            let sourceY = image.height - targetCropSize - margin;
+
+            ctx.drawImage(image, sourceX, sourceY, targetCropSize, targetCropSize, 0, 0, targetCropSize, targetCropSize);
+			
+            const scaledCanvas = document.createElement('canvas');
+            const targetScaleSize = 1024;
+            scaledCanvas.width = targetScaleSize;
+            scaledCanvas.height = targetScaleSize;
+            const scaledCtx = scaledCanvas.getContext('2d');
+            scaledCtx.drawImage(croppedCanvas, 0, 0, targetScaleSize, targetScaleSize);
+
+            return scaledCanvas;
+        }
+		
+        let scene, camera, renderer;
+        let sphereMesh;
+        let isInitialized = false;
+		
+        const vertexShader = `
+            varying vec3 vDirection;
+            void main() {
+                vDirection = normalize(position);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+		
+        const fragmentShader = `
+            uniform samplerCube tCube;
+            uniform mat4 uCameraMatrix;
+            uniform vec2 uResolution;
+
+            void main() {
+                vec2 screenCoords = gl_FragCoord.xy;
+                vec2 ndc = (screenCoords / uResolution) * 2.0 - 1.0;
+                ndc.x *= uResolution.x / uResolution.y;
+
+                float r2 = dot(ndc, ndc);
+                float den = 1.0 + r2;
+                vec3 finalLookupVec = vec3(2.0 * ndc.x / den, 2.0 * ndc.y / den, (1.0 - r2) / den);
+
+                vec3 rotatedLookupVec = (uCameraMatrix * vec4(finalLookupVec, 0.0)).xyz;
+
+                vec4 color = textureCube(tCube, rotatedLookupVec);
+
+                gl_FragColor = color;
+            }
+        `;
+
+        function initWebGL(cubemapTexture) {
+            if (isInitialized) {
+                if (renderer) {
+                    renderer.dispose();
+                    container.innerHTML = '';
+                }
+            }
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+            camera.position.set(0, 0, 0);
+            camera.lookAt(0, 1, 0);
+			camera.updateProjectionMatrix();
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false });
+            renderer.setSize(1024, 1024);
+            renderer.setPixelRatio(1);
+            container.appendChild(renderer.domElement);
+
+            const uniforms = {
+                tCube: { value: cubemapTexture },
+                uCameraMatrix: { value: new THREE.Matrix4() },
+                uResolution: { value: new THREE.Vector2(container.clientWidth, container.clientHeight) } // 추가
+            };
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                side: THREE.BackSide
+            });
+
+            const geometry = new THREE.SphereGeometry(1, 64, 64);
+            sphereMesh = new THREE.Mesh(geometry, material);
+            scene.add(sphereMesh);
+
+            sphereMesh.rotation.x = Math.PI / 2;
+			
+			sphereMesh.updateMatrixWorld(true);
+
+            uniforms.uCameraMatrix.value.copy(sphereMesh.matrixWorld).invert();
+
+            animate();
+            isInitialized = true;
+            downloadButton.style.display = 'block';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        processImagesButton.addEventListener('click', async () => {
+            if (loadedImages.length < 6) {
+                return;
+            }
+
+            const allImagesLoadedAsObjects = loadedImages.every(item => item.image instanceof Image);
+            if (!allImagesLoadedAsObjects) {
+                return;
+            }
+			
+            scaledCanvases = [];
+            scaledCanvasesForPreview = [];
+
+            const threeJsCubemapOrder = [1, 3, 5, 4, 0, 2];
+
+            for (let i = 0; i < threeJsCubemapOrder.length; i++) {
+                const originalIndex = loadedImages.findIndex(item => item.index === threeJsCubemapOrder[i]);
+                if (originalIndex !== -1) {
+                    const imageData = loadedImages?.[originalIndex];
+                    if (imageData && imageData.image) {
+                        try {
+                            const scaledCanvas = await processAndScaleImage(imageData.image, imageData.index);
+                            scaledCanvases.push(scaledCanvas);
+                            scaledCanvasesForPreview.push(scaledCanvas);
+						} catch (error) {
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+
+            if (scaledCanvases.length === 6 && scaledCanvases.every(c => c instanceof HTMLCanvasElement && c.width === 1024 && c.height === 1024)) {
+                const cubemapTexture = new THREE.CubeTexture(scaledCanvases);
+                cubemapTexture.needsUpdate = true;
+                cubemapTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                cubemapTexture.magFilter = THREE.LinearFilter;
+				
+                initWebGL(cubemapTexture);
+                updatePreviewAll();
+            }
+        });
+
+        downloadButton.addEventListener('click', () => {
+            if (renderer) {
+                try {
+                    const imageDataURL = renderer.domElement.toDataURL('image/png');
+                    const a = document.createElement('a');
+                    a.href = imageDataURL;
+                    a.download = 'stereographic_projection.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                } catch (e) {
+                    console.error("Error during image download:", e);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
