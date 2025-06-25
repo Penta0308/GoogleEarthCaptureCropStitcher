@@ -309,7 +309,7 @@ button:active {
 
                 float r2 = dot(ndc, ndc);
                 float den = 1.0 + r2;
-				vec3 finalLookupVec = vec3(2.0 * ndc.x / den, 2.0 * ndc.y / den, 2.0 * (1.0 - r2) / (1.0 + r2) - 1.0);
+				vec3 finalLookupVec = vec3(2.0 * ndc.x / den, 2.0 * ndc.y / den, (1.0 - r2) / (1.0 + r2));
 
                 vec3 rotatedLookupVec = (uCameraMatrix * vec4(finalLookupVec, 0.0)).xyz;
 
